@@ -1,0 +1,18 @@
+[package]
+name = "violence"
+version = "0.1.0"
+authors = ["feffe <feffe@feffe.dev>"]
+edition = "2021"
+
+
+[dependencies]
+dioxus = { version = "0.7.1", features = ["router"] }
+rusqlite = { version = "0.31.0", features = ["bundled"] }
+lazy_static = "1.4.0"
+thiserror = "1.0.61"
+env_logger = "0.11.3"
+log = "0.4.21"
+
+[features]
+default = ["mobile"]
+mobile = ["dioxus/mobile"]
