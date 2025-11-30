@@ -1,6 +1,11 @@
 [application]
 android_manifest = "./android/AndroidManifest.xml"
 android_main_activity = "./android/MainActivity.kt"
+name = "violence"
+
+[bundle]
+identifier = "com.example.violence"
+publisher = "feffe"
 
 [web.app]
 
