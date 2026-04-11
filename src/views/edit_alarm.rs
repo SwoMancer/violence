@@ -48,13 +48,7 @@ pub fn EditAlarm(id: i64) -> Element {
         }
     };
 
-    let (init_h, init_m) = alarm
-        .time
-        .split_once(':')
-        .map(|(h, m)| (h.to_string(), m.to_string()))
-        .unwrap_or_else(|| ("00".to_string(), "00".to_string()));
-    let mut hour_str = use_signal(|| init_h);
-    let mut minute_str = use_signal(|| init_m);
+    let mut time_str = use_signal(|| alarm.time.clone());
     let mut enabled = use_signal(|| alarm.enabled);
     let mut recurrence = use_signal(|| alarm.recurrence.clone());
     let mut monday = use_signal(|| alarm.monday);
@@ -88,9 +82,8 @@ pub fn EditAlarm(id: i64) -> Element {
         error.set(String::new());
 
         let time_str = {
-            let h: u32 = hour_str.read().parse().unwrap_or(0).min(23);
-            let m: u32 = minute_str.read().parse().unwrap_or(0).min(59);
-            format!("{:02}:{:02}", h, m)
+            let v = time_str.read().clone();
+            if v.is_empty() { "00:00".to_string() } else { v }
         };
 
         if let Err(e) = database::update_alarm(
@@ -152,33 +145,11 @@ pub fn EditAlarm(id: i64) -> Element {
                         class: "block text-xs uppercase tracking-widest text-dim mb-2",
                         "time"
                     }
-                    div {
-                        class: "flex items-center gap-1 border-b border-faint focus-within:border-fg py-2",
-                        input {
-                            class: "w-10 bg-transparent text-center tabular-nums outline-none text-base",
-                            r#type: "text",
-                            inputmode: "numeric",
-                            pattern: "[0-9]*",
-                            maxlength: "2",
-                            value: "{hour_str}",
-                            oninput: move |evt| {
-                                let s: String = evt.value().chars().filter(|c| c.is_ascii_digit()).take(2).collect();
-                                hour_str.set(s);
-                            },
-                        }
-                        span { class: "text-base text-dim tabular-nums", ":" }
-                        input {
-                            class: "w-10 bg-transparent text-center tabular-nums outline-none text-base",
-                            r#type: "text",
-                            inputmode: "numeric",
-                            pattern: "[0-9]*",
-                            maxlength: "2",
-                            value: "{minute_str}",
-                            oninput: move |evt| {
-                                let s: String = evt.value().chars().filter(|c| c.is_ascii_digit()).take(2).collect();
-                                minute_str.set(s);
-                            },
-                        }
+                    input {
+                        class: "w-full bg-transparent border-b border-faint focus:border-fg px-0 py-2 outline-none text-base tabular-nums",
+                        r#type: "time",
+                        value: "{time_str}",
+                        oninput: move |evt| time_str.set(evt.value()),
                     }
                 }
                 div {

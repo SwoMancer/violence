@@ -42,6 +42,9 @@ typealias BuildConfig = AppBuildConfig
 class MainActivity : WryActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        // Force the JVM default locale before WryActivity instantiates the WebView,
+        // so Chromium's <input type="time"> renders 24-hour instead of AM/PM.
+        Locale.setDefault(Locale.UK)
         instance = this  // set before super so Rust can call getFilesDir() during Dioxus init
         super.onCreate(savedInstanceState)
 
