@@ -1,15 +1,31 @@
-use crate::database::{self, get_connection};
+use crate::database;
 use dioxus::prelude::*;
 
 use crate::Route;
 
-/// The Blog page component that will be rendered when the current route is `[Route::Blog]`
-///
-/// The component takes a `id` prop of type `i32` from the route enum. Whenever the id changes, the component function will be
-/// re-run and the rendered HTML will be updated.
+#[cfg(target_os = "android")]
+const DEFAULT_CONFIRM_MS: i64 = 5 * 60_000;
+#[cfg(target_os = "android")]
+const DEFAULT_REFIRE_MS: i64 = 15 * 60_000;
+
+fn parse_minutes_override(raw: &str) -> Option<i64> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    match trimmed.parse::<i64>() {
+        Ok(n) if n > 0 => Some(n * 60_000),
+        _ => {
+            log::error!("invalid minute override: {raw:?}");
+            None
+        }
+    }
+}
+
 #[component]
 pub fn CreateAlarm() -> Element {
-    let mut time = use_signal(String::new);
+    let mut hour_str = use_signal(|| "00".to_string());
+    let mut minute_str = use_signal(|| "00".to_string());
     let mut enabled = use_signal(|| true);
     let mut recurrence = use_signal(|| "one-off".to_string());
     let mut monday = use_signal(|| false);
@@ -19,14 +35,33 @@ pub fn CreateAlarm() -> Element {
     let mut friday = use_signal(|| false);
     let mut saturday = use_signal(|| false);
     let mut sunday = use_signal(|| false);
+    let mut confirm_override = use_signal(String::new);
+    let mut refire_override = use_signal(String::new);
+    let mut error = use_signal(String::new);
 
     let navigator = use_navigator();
 
     let save = move |_| {
-        if let Err(e) = create_alarm(
-            time.read().clone(),
+        let confirm_opt = parse_minutes_override(&confirm_override.read());
+        let refire_opt = parse_minutes_override(&refire_override.read());
+        if let (Some(c), Some(r)) = (confirm_opt, refire_opt) {
+            if r <= c {
+                error.set("Refire delay must be greater than confirm delay.".to_string());
+                return;
+            }
+        }
+        error.set(String::new());
+
+        let time_str = {
+            let h: u32 = hour_str.read().parse().unwrap_or(0).min(23);
+            let m: u32 = minute_str.read().parse().unwrap_or(0).min(59);
+            format!("{:02}:{:02}", h, m)
+        };
+
+        match database::insert_alarm(
+            &time_str,
             *enabled.read(),
-            recurrence.read().clone(),
+            &recurrence.read(),
             *monday.read(),
             *tuesday.read(),
             *wednesday.read(),
@@ -34,83 +69,166 @@ pub fn CreateAlarm() -> Element {
             *friday.read(),
             *saturday.read(),
             *sunday.read(),
+            confirm_opt,
+            refire_opt,
         ) {
-            log::error!("failed to create alarm: {}", e);
+            Ok(_id) => {
+                #[cfg(target_os = "android")]
+                {
+                    let (global_confirm, global_refire) =
+                        crate::scheduler::get_global_settings()
+                            .unwrap_or((DEFAULT_CONFIRM_MS, DEFAULT_REFIRE_MS));
+                    let effective_confirm = confirm_opt.unwrap_or(global_confirm);
+                    let effective_refire = refire_opt.unwrap_or(global_refire);
+                    if let Err(e) = crate::scheduler::schedule_alarm(
+                        _id,
+                        &time_str,
+                        effective_confirm,
+                        effective_refire,
+                    ) {
+                        log::error!("schedule_alarm failed: {e}");
+                    }
+                }
+            }
+            Err(e) => log::error!("failed to create alarm: {e}"),
         }
         navigator.push(Route::Home {});
     };
 
     rsx! {
         div {
-            class: "bg-gray-800 text-gray-200 min-h-screen",
+            class: "bg-bg text-fg min-h-screen",
             div {
-                class: "container mx-auto px-4 py-8",
-                h1 {
-                    class: "text-4xl font-bold mb-4",
-                    "Create Alarm"
-                },
+                class: "max-w-2xl mx-auto px-5 py-6",
                 div {
-                    class: "mb-4",
-                    label {
-                        class: "block text-gray-400 text-sm font-bold mb-2",
-                        "Time"
-                    },
-                    input {
-                        class: "bg-gray-700 text-white rounded py-2 px-3 w-full",
-                        r#type: "time",
-                        value: "{time}",
-                        oninput: move |evt| time.set(evt.value().clone()),
-                    }
-                },
+                    class: "flex items-baseline gap-3 mb-6 pb-3 border-b border-faint",
+                    Link { to: Route::Home {}, class: "text-dim hover:text-fg text-sm transition-colors", "←" }
+                    h1 { class: "text-base tracking-wide", "new alarm" }
+                }
                 div {
-                    class: "mb-4",
+                    class: "mb-5",
                     label {
-                        class: "flex items-center",
-                        input {
-                            class: "mr-2",
-                            r#type: "checkbox",
-                            checked: "{enabled}",
-                            oninput: move |evt| enabled.set(evt.value() == "true"),
-                        },
-                        "Enabled"
+                        class: "block text-xs uppercase tracking-widest text-dim mb-2",
+                        "time"
                     }
-                },
-                div {
-                    class: "mb-4",
-                    label {
-                        class: "block text-gray-400 text-sm font-bold mb-2",
-                        "Recurrence"
-                    },
-                    select {
-                        class: "bg-gray-700 text-white rounded py-2 px-3 w-full",
-                        onchange: move |evt| recurrence.set(evt.value().clone()),
-                        option { value: "one-off", "One-off" },
-                        option { value: "daily", "Daily" },
-                    }
-                },
-                if recurrence.read().clone() == "daily" {
                     div {
-                        class: "mb-4 grid grid-cols-4 gap-2",
-                        label { class: "flex items-center", input { class: "mr-2", r#type: "checkbox", oninput: move |evt| monday.set(evt.value() == "true"), }, "Mon" },
-                        label { class: "flex items-center", input { class: "mr-2", r#type: "checkbox", oninput: move |evt| tuesday.set(evt.value() == "true"), }, "Tue" },
-                        label { class: "flex items-center", input { class: "mr-2", r#type: "checkbox", oninput: move |evt| wednesday.set(evt.value() == "true"), }, "Wed" },
-                        label { class: "flex items-center", input { class: "mr-2", r#type: "checkbox", oninput: move |evt| thursday.set(evt.value() == "true"), }, "Thu" },
-                        label { class: "flex items-center", input { class: "mr-2", r#type: "checkbox", oninput: move |evt| friday.set(evt.value() == "true"), }, "Fri" },
-                        label { class: "flex items-center", input { class: "mr-2", r#type: "checkbox", oninput: move |evt| saturday.set(evt.value() == "true"), }, "Sat" },
-                        label { class: "flex items-center", input { class: "mr-2", r#type: "checkbox", oninput: move |evt| sunday.set(evt.value() == "true"), }, "Sun" },
+                        class: "flex items-center gap-1 border-b border-faint focus-within:border-fg py-2",
+                        input {
+                            class: "w-10 bg-transparent text-center tabular-nums outline-none text-base",
+                            r#type: "text",
+                            inputmode: "numeric",
+                            pattern: "[0-9]*",
+                            maxlength: "2",
+                            value: "{hour_str}",
+                            oninput: move |evt| {
+                                let s: String = evt.value().chars().filter(|c| c.is_ascii_digit()).take(2).collect();
+                                hour_str.set(s);
+                            },
+                        }
+                        span { class: "text-base text-dim tabular-nums", ":" }
+                        input {
+                            class: "w-10 bg-transparent text-center tabular-nums outline-none text-base",
+                            r#type: "text",
+                            inputmode: "numeric",
+                            pattern: "[0-9]*",
+                            maxlength: "2",
+                            value: "{minute_str}",
+                            oninput: move |evt| {
+                                let s: String = evt.value().chars().filter(|c| c.is_ascii_digit()).take(2).collect();
+                                minute_str.set(s);
+                            },
+                        }
                     }
                 }
                 div {
-                    class: "flex justify-between",
+                    class: "mb-5",
+                    label {
+                        class: "flex items-center gap-2 text-sm",
+                        input {
+                            r#type: "checkbox",
+                            checked: "{enabled}",
+                            oninput: move |evt| enabled.set(evt.value() == "true"),
+                        }
+                        "enabled"
+                    }
+                }
+                div {
+                    class: "mb-5",
+                    label {
+                        class: "block text-xs uppercase tracking-widest text-dim mb-2",
+                        "recurrence"
+                    }
+                    select {
+                        class: "w-full bg-transparent border-b border-faint focus:border-fg px-0 py-2 outline-none text-base appearance-none",
+                        onchange: move |evt| recurrence.set(evt.value().clone()),
+                        option { value: "one-off", "one-off" }
+                        option { value: "daily", "daily" }
+                    }
+                }
+                if recurrence.read().clone() == "daily" {
+                    div {
+                        class: "mb-5",
+                        label {
+                            class: "block text-xs uppercase tracking-widest text-dim mb-2",
+                            "repeat on"
+                        }
+                        div {
+                            class: "grid grid-cols-4 gap-x-4 gap-y-2 text-sm",
+                            label { class: "flex items-center gap-2", input { r#type: "checkbox", oninput: move |evt| monday.set(evt.value() == "true"), }, "mon" }
+                            label { class: "flex items-center gap-2", input { r#type: "checkbox", oninput: move |evt| tuesday.set(evt.value() == "true"), }, "tue" }
+                            label { class: "flex items-center gap-2", input { r#type: "checkbox", oninput: move |evt| wednesday.set(evt.value() == "true"), }, "wed" }
+                            label { class: "flex items-center gap-2", input { r#type: "checkbox", oninput: move |evt| thursday.set(evt.value() == "true"), }, "thu" }
+                            label { class: "flex items-center gap-2", input { r#type: "checkbox", oninput: move |evt| friday.set(evt.value() == "true"), }, "fri" }
+                            label { class: "flex items-center gap-2", input { r#type: "checkbox", oninput: move |evt| saturday.set(evt.value() == "true"), }, "sat" }
+                            label { class: "flex items-center gap-2", input { r#type: "checkbox", oninput: move |evt| sunday.set(evt.value() == "true"), }, "sun" }
+                        }
+                    }
+                }
+                div {
+                    class: "mb-5",
+                    label {
+                        class: "block text-xs uppercase tracking-widest text-dim mb-2",
+                        "confirm delay override (min)"
+                    }
+                    input {
+                        class: "w-full bg-transparent border-b border-faint focus:border-fg px-0 py-2 outline-none text-base",
+                        r#type: "number",
+                        min: "1",
+                        value: "{confirm_override}",
+                        oninput: move |evt| confirm_override.set(evt.value().clone()),
+                    }
+                }
+                div {
+                    class: "mb-5",
+                    label {
+                        class: "block text-xs uppercase tracking-widest text-dim mb-2",
+                        "refire delay override (min)"
+                    }
+                    input {
+                        class: "w-full bg-transparent border-b border-faint focus:border-fg px-0 py-2 outline-none text-base",
+                        r#type: "number",
+                        min: "1",
+                        value: "{refire_override}",
+                        oninput: move |evt| refire_override.set(evt.value().clone()),
+                    }
+                }
+                if !error.read().is_empty() {
+                    div {
+                        class: "border border-danger text-danger px-3 py-2 text-sm mb-4",
+                        "{error}"
+                    }
+                }
+                div {
+                    class: "flex items-center gap-5 mt-6",
                     button {
-                        class: "bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded",
+                        class: "border border-faint hover:border-fg px-4 py-2 text-sm transition-colors",
                         onclick: save,
-                        "Save"
-                    },
+                        "save"
+                    }
                     Link {
                         to: Route::Home {},
-                        class: "text-gray-400 hover:text-white",
-                        "Back"
+                        class: "text-dim hover:text-fg text-sm transition-colors",
+                        "cancel"
                     }
                 }
             }
@@ -118,24 +236,3 @@ pub fn CreateAlarm() -> Element {
     }
 }
 
-fn create_alarm(
-    time: String,
-    enabled: bool,
-    recurrence: String,
-    monday: bool,
-    tuesday: bool,
-    wednesday: bool,
-    thursday: bool,
-    friday: bool,
-    saturday: bool,
-    sunday: bool,
-) -> database::Result<()> {
-    let conn = get_connection()
-        .lock()
-        .map_err(|e| database::Error::Mutex(e.to_string()))?;
-    conn.execute(
-        "INSERT INTO alarms (time, enabled, recurrence, monday, tuesday, wednesday, thursday, friday, saturday, sunday) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
-        (time, enabled, recurrence, monday, tuesday, wednesday, thursday, friday, saturday, sunday),
-    )?;
-    Ok(())
-}

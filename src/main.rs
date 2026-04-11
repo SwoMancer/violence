@@ -1,10 +1,12 @@
 use dioxus::prelude::*;
 
-use views::{CreateAlarm, Home};
+use views::{CreateAlarm, EditAlarm, Home, Settings};
 
 /// Define a components module that contains all shared components for our app.
 mod components;
 mod database;
+#[cfg(target_os = "android")]
+mod scheduler;
 mod views;
 
 /// The Route enum is used to define the structure of internal routes in our app. All route enums need to derive
@@ -19,16 +21,17 @@ enum Route {
     Home {},
     #[route("/create_alarm")]
     CreateAlarm { },
+    #[route("/edit_alarm/:id")]
+    EditAlarm { id: i64 },
+    #[route("/settings")]
+    Settings { },
 }
 
 const FAVICON: Asset = asset!("/assets/favicon.ico");
-const MAIN_CSS: Asset = asset!("/assets/styling/main.css");
 const TAILWIND_CSS: Asset = asset!("/assets/tailwind.css");
 
 fn main() {
     env_logger::init();
-    // The `launch` function is the main entry point for a dioxus app. It takes a component and renders it with the platform feature
-    // you have enabled
     dioxus::launch(App);
 }
 
@@ -40,14 +43,8 @@ fn main() {
 fn App() -> Element {
     // The `rsx!` macro lets us define HTML inside of rust. It expands to an Element with all of our HTML inside.
     rsx! {
-        // In addition to element and text (which we will see later), rsx can contain other components. In this case,
-        // we are using the `document::Link` component to add a link to our favicon and main CSS file into the head of our app.
         document::Link { rel: "icon", href: FAVICON }
-        document::Link { rel: "stylesheet", href: MAIN_CSS }
         document::Link { rel: "stylesheet", href: TAILWIND_CSS }
-
-        // The router component renders the route enum we defined above. It will handle synchronization of the URL and render
-        // the layouts and components for the active route.
         Router::<Route> {}
     }
 }

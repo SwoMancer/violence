@@ -40,9 +40,18 @@
             </intent-filter>
         </activity>
 
-        <receiver 
+        <activity
+            android:name="dev.dioxus.main.AlarmActivity"
+            android:exported="false"
+            android:launchMode="singleInstance"
+            android:excludeFromRecents="true"
+            android:showWhenLocked="true"
+            android:turnScreenOn="true"
+            android:theme="@android:style/Theme.Black.NoTitleBar.Fullscreen" />
+
+        <receiver
             android:name="dev.dioxus.main.AlarmReceiver"
-            android:exported="false"> 
+            android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.BOOT_COMPLETED" />
             </intent-filter>

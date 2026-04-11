@@ -1,1 +1,38 @@
 @import "tailwindcss";
+
+@theme {
+  --color-bg:      #000000;
+  --color-fg:      #e5e5e5;
+  --color-dim:     #7a7a7a;
+  --color-faint:   #262626;
+  --color-hover:   #0a0a0a;
+  --color-danger:  #cc3333;
+
+  --font-sans: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
+               "Liberation Mono", "DejaVu Sans Mono", "Courier New", monospace;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
+               "Liberation Mono", "DejaVu Sans Mono", "Courier New", monospace;
+
+  --radius-sm: 0;
+  --radius-md: 0;
+  --radius-lg: 0;
+  --radius-xl: 0;
+}
+
+@layer base {
+  :root {
+    color-scheme: dark;
+  }
+
+  html, body {
+    background: var(--color-bg);
+    color: var(--color-fg);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+  }
+
+  input[type="checkbox"],
+  input[type="radio"] {
+    accent-color: var(--color-fg);
+  }
+}
