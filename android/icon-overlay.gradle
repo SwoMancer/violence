@@ -1,0 +1,27 @@
+// Replaces default Dioxus launcher icons with custom ones.
+// Workaround for https://github.com/DioxusLabs/dioxus/issues/3685
+//
+// Install: copy or symlink this file into ~/.gradle/init.d/
+//   ln -sf "$(pwd)/android/icon-overlay.gradle" ~/.gradle/init.d/violence-icon-overlay.gradle
+
+allprojects {
+    plugins.withId("com.android.application") {
+        afterEvaluate {
+            if (android.namespace == "com.example.violence") {
+                // Navigate from the :app module's projectDir up to the crate root
+                def crateRoot = file("${project.projectDir}/../../../../../../..")
+                def overlayDir = new File(crateRoot, "android/res")
+
+                if (overlayDir.exists()) {
+                    def resDir = file("${project.projectDir}/src/main/res")
+                    delete fileTree(resDir) { include '**/ic_launcher*' }
+                    copy {
+                        from overlayDir
+                        into resDir
+                    }
+                    println("Violence: Replaced launcher icons from ${overlayDir}")
+                }
+            }
+        }
+    }
+}

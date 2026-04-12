@@ -6,6 +6,7 @@ name = "violence"
 [bundle]
 identifier = "com.example.violence"
 publisher = "feffe"
+icon = ["assets/icon.png"]
 
 [web.app]
 

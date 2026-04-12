@@ -48,6 +48,11 @@ jobs:
       - name: Install Dioxus CLI
         run: cargo install dioxus-cli --version "${DIOXUS_CLI_VERSION}" --locked
 
+      - name: Install custom launcher icon overlay
+        run: |
+          mkdir -p ~/.gradle/init.d
+          cp android/icon-overlay.gradle ~/.gradle/init.d/violence-icon-overlay.gradle
+
       - name: Build release APK
         run: dx bundle --platform android --release --target aarch64-linux-android
 
