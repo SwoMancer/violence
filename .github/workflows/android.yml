@@ -52,6 +52,9 @@ jobs:
         run: dx bundle --platform android --release --target aarch64-linux-android
 
       - name: Stage and sign APK
+        env:
+          NIGHTLY_KEYSTORE_B64: ${{ secrets.NIGHTLY_KEYSTORE_B64 }}
+          NIGHTLY_KEYSTORE_PASS: ${{ secrets.NIGHTLY_KEYSTORE_PASS }}
         run: |
           set -euo pipefail
           mkdir -p artifacts
@@ -76,24 +79,33 @@ jobs:
           echo "Selected release APK: ${release_apk}"
 
           build_tools="${ANDROID_SDK_ROOT}/build-tools/34.0.0"
-          keystore="${HOME}/.android/debug.keystore"
-          mkdir -p "${HOME}/.android"
-          if [ ! -f "${keystore}" ]; then
+          keystore="/tmp/violence-nightly.jks"
+
+          if [ -n "${NIGHTLY_KEYSTORE_B64:-}" ]; then
+            echo "${NIGHTLY_KEYSTORE_B64}" | base64 -d > "${keystore}"
+            ks_pass="${NIGHTLY_KEYSTORE_PASS}"
+            ks_alias="violence-nightly"
+          else
+            echo "::warning::No signing secret found — falling back to ephemeral debug keystore"
+            keystore="${HOME}/.android/debug.keystore"
+            mkdir -p "${HOME}/.android"
             keytool -genkeypair -v \
               -keystore "${keystore}" \
               -storepass android -keypass android \
               -alias androiddebugkey \
               -keyalg RSA -keysize 2048 -validity 10000 \
               -dname "CN=Android Debug,O=Android,C=US"
+            ks_pass="android"
+            ks_alias="androiddebugkey"
           fi
 
           aligned="artifacts/violence-nightly.apk"
           "${build_tools}/zipalign" -f -p 4 "${release_apk}" "${aligned}"
           "${build_tools}/apksigner" sign \
             --ks "${keystore}" \
-            --ks-pass pass:android \
-            --key-pass pass:android \
-            --ks-key-alias androiddebugkey \
+            --ks-pass "pass:${ks_pass}" \
+            --key-pass "pass:${ks_pass}" \
+            --ks-key-alias "${ks_alias}" \
             "${aligned}"
           "${build_tools}/apksigner" verify --verbose "${aligned}"
 
