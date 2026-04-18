@@ -72,7 +72,7 @@ pub fn CreateAlarm() -> Element {
         ) {
             Ok(_id) => {
                 #[cfg(target_os = "android")]
-                {
+                if *enabled.read() {
                     let (global_confirm, global_refire) =
                         crate::scheduler::get_global_settings()
                             .unwrap_or((DEFAULT_CONFIRM_MS, DEFAULT_REFIRE_MS));

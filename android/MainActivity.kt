@@ -15,6 +15,7 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.graphics.Color
+import android.provider.Settings
 import android.media.AudioAttributes
 import android.media.Ringtone
 import android.media.RingtoneManager
@@ -60,6 +61,30 @@ class MainActivity : WryActivity() {
                 arrayOf(android.Manifest.permission.POST_NOTIFICATIONS),
                 0
             )
+        }
+
+        // "Display over other apps" — required for launching AlarmActivity from the
+        // background on API 34+. Without it, setAlarmClock PendingIntents are BAL_BLOCKed.
+        if (!Settings.canDrawOverlays(this)) {
+            startActivity(
+                Intent(
+                    Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                    android.net.Uri.parse("package:$packageName")
+                )
+            )
+        }
+
+        // Android 14+ requires explicit grant for full-screen intent permission.
+        // Without it, alarms only show a notification instead of taking over the screen.
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+            if (!nm.canUseFullScreenIntent()) {
+                val settingsIntent = Intent(
+                    android.provider.Settings.ACTION_MANAGE_APP_USE_FULL_SCREEN_INTENT,
+                    android.net.Uri.parse("package:$packageName")
+                )
+                startActivity(settingsIntent)
+            }
         }
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -180,6 +205,25 @@ class MainActivity : WryActivity() {
 
         fun confirmNotifId(alarmId: Int): Int = alarmId + CONFIRM_NOTIF_OFFSET
 
+        fun activityPendingIntent(
+            context: Context,
+            alarmId: Int,
+            action: String,
+            extras: Bundle? = null
+        ): PendingIntent {
+            val intent = Intent(context, AlarmActivity::class.java).apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
+                putExtra(EXTRA_ALARM_ID, alarmId)
+                if (extras != null) putExtras(extras)
+            }
+            return PendingIntent.getActivity(
+                context,
+                requestCodeFor(alarmId, action),
+                intent,
+                PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+            )
+        }
+
         @JvmStatic
         fun scheduleAlarmFromHHMM(time: String, id: Int, confirmMs: Long, refireMs: Long) {
             Log.i(
@@ -210,13 +254,22 @@ class MainActivity : WryActivity() {
             }
 
             Log.i("Violence", "Scheduling alarm id=$id for ${cal.time} (${cal.timeInMillis}ms)")
+            val ctx = instance.applicationContext
             val extras = Bundle().apply {
                 putLong(EXTRA_CONFIRM_DELAY_MS, confirmMs)
                 putLong(EXTRA_REFIRE_DELAY_MS, refireMs)
             }
-            scheduleFollowup(
-                instance.applicationContext, id, ACTION_FIRE, cal.timeInMillis, extras
+            val firePi = activityPendingIntent(ctx, id, ACTION_FIRE, extras)
+            val showPi = PendingIntent.getActivity(
+                ctx, id,
+                Intent(ctx, MainActivity::class.java),
+                PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
             )
+            val alarmManager = ctx.getSystemService(Context.ALARM_SERVICE) as AlarmManager
+            alarmManager.setAlarmClock(
+                AlarmManager.AlarmClockInfo(cal.timeInMillis, showPi), firePi
+            )
+            Log.i("Violence", "setAlarmClock: alarmId=$id at=${cal.timeInMillis}")
         }
 
         @JvmStatic
@@ -246,10 +299,12 @@ class MainActivity : WryActivity() {
         fun cancelAlarm(id: Int) {
             val context = instance.applicationContext
             val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
-            for (action in listOf(ACTION_FIRE, ACTION_CONFIRM, ACTION_REFIRE)) {
-                val pi = receiverPendingIntent(context, id, action)
-                alarmManager.cancel(pi)
+            // FIRE and REFIRE use PendingIntent.getActivity (system launches AlarmActivity directly)
+            for (action in listOf(ACTION_FIRE, ACTION_REFIRE)) {
+                alarmManager.cancel(activityPendingIntent(context, id, action))
             }
+            // CONFIRM uses PendingIntent.getBroadcast (receiver posts notification)
+            alarmManager.cancel(receiverPendingIntent(context, id, ACTION_CONFIRM))
             val nm = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
             nm.cancel(id)
             nm.cancel(confirmNotifId(id))
@@ -277,58 +332,9 @@ class AlarmReceiver : BroadcastReceiver() {
         )
 
         when (action) {
-            MainActivity.ACTION_FIRE,
-            MainActivity.ACTION_REFIRE -> fireAlarm(context, alarmId, confirmDelayMs, refireDelayMs)
             MainActivity.ACTION_CONFIRM -> showConfirmNotification(context, alarmId, intent)
             MainActivity.ACTION_ACK -> acknowledgeAlarm(context, alarmId)
-            else -> Log.w("Violence", "AlarmReceiver: unknown action $action")
-        }
-    }
-
-    private fun fireAlarm(
-        context: Context,
-        alarmId: Int,
-        confirmDelayMs: Long,
-        refireDelayMs: Long
-    ) {
-        val activityIntent = Intent(context, AlarmActivity::class.java).apply {
-            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
-            putExtra(MainActivity.EXTRA_ALARM_ID, alarmId)
-            putExtra(MainActivity.EXTRA_CONFIRM_DELAY_MS, confirmDelayMs)
-            putExtra(MainActivity.EXTRA_REFIRE_DELAY_MS, refireDelayMs)
-        }
-        val fullScreenPi = PendingIntent.getActivity(
-            context,
-            alarmId,
-            activityIntent,
-            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
-        )
-
-        val notification = NotificationCompat.Builder(context, MainActivity.ALARM_CHANNEL_ID)
-            .setSmallIcon(android.R.drawable.ic_lock_idle_alarm)
-            .setContentTitle("Violence HQ")
-            .setContentText("Wake up")
-            .setPriority(NotificationCompat.PRIORITY_HIGH)
-            .setCategory(NotificationCompat.CATEGORY_ALARM)
-            .setContentIntent(fullScreenPi)
-            .setFullScreenIntent(fullScreenPi, true)
-            .setAutoCancel(true)
-            .build()
-
-        val nm = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N && !nm.areNotificationsEnabled()) {
-            Log.e("Violence", "fireAlarm: notifications disabled")
-        }
-        nm.notify(alarmId, notification)
-        Log.i("Violence", "fireAlarm: notification posted alarmId=$alarmId")
-
-        // Belt and braces: setFullScreenIntent is best-effort on some OEMs, so we
-        // also try to launch AlarmActivity directly. startActivity is permitted from
-        // a BroadcastReceiver that was triggered by setExactAndAllowWhileIdle.
-        try {
-            context.startActivity(activityIntent)
-        } catch (e: Exception) {
-            Log.e("Violence", "fireAlarm: startActivity failed: $e")
+            else -> Log.w("Violence", "AlarmReceiver: unexpected action $action")
         }
     }
 
@@ -363,7 +369,7 @@ class AlarmReceiver : BroadcastReceiver() {
 
     private fun acknowledgeAlarm(context: Context, alarmId: Int) {
         val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
-        val refirePi = MainActivity.receiverPendingIntent(
+        val refirePi = MainActivity.activityPendingIntent(
             context, alarmId, MainActivity.ACTION_REFIRE
         )
         alarmManager.cancel(refirePi)
@@ -404,13 +410,10 @@ class AlarmActivity : Activity() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
             setShowWhenLocked(true)
             setTurnScreenOn(true)
-            (getSystemService(Context.KEYGUARD_SERVICE) as KeyguardManager)
-                .requestDismissKeyguard(this, null)
         } else {
             window.addFlags(
                 WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED or
-                WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON or
-                WindowManager.LayoutParams.FLAG_DISMISS_KEYGUARD
+                WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON
             )
         }
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
@@ -534,14 +537,23 @@ class AlarmActivity : Activity() {
             putLong(MainActivity.EXTRA_CONFIRM_DELAY_MS, confirmDelayMs)
             putLong(MainActivity.EXTRA_REFIRE_DELAY_MS, refireDelayMs)
         }
+        // CONFIRM: notification only, no activity launch needed — use broadcast receiver
         MainActivity.scheduleFollowup(
             applicationContext, alarmId, MainActivity.ACTION_CONFIRM,
             now + confirmDelayMs, confirmExtras
         )
-        MainActivity.scheduleFollowup(
-            applicationContext, alarmId, MainActivity.ACTION_REFIRE,
-            refireAt, refireExtras
+        // REFIRE: needs to launch AlarmActivity — use setAlarmClock so the system
+        // launches the activity directly (bypasses BAL restrictions on API 34+)
+        val refirePi = MainActivity.activityPendingIntent(
+            applicationContext, alarmId, MainActivity.ACTION_REFIRE, refireExtras
         )
+        val showPi = PendingIntent.getActivity(
+            applicationContext, alarmId,
+            Intent(applicationContext, MainActivity::class.java),
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+        )
+        val am = applicationContext.getSystemService(Context.ALARM_SERVICE) as AlarmManager
+        am.setAlarmClock(AlarmManager.AlarmClockInfo(refireAt, showPi), refirePi)
 
         finish()
     }

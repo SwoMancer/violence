@@ -167,6 +167,31 @@ pub fn set_global_settings(confirm_ms: i64, refire_ms: i64) -> Result<(), Schedu
     Ok(())
 }
 
+pub fn reschedule_all_enabled() {
+    let alarms = match crate::database::load_alarms() {
+        Ok(a) => a,
+        Err(e) => {
+            log::error!("reschedule_all_enabled: load_alarms failed: {e}");
+            return;
+        }
+    };
+    let (global_confirm, global_refire) = get_global_settings().unwrap_or((5 * 60_000, 15 * 60_000));
+    let mut count = 0;
+    for alarm in &alarms {
+        if !alarm.enabled {
+            continue;
+        }
+        let confirm = alarm.confirm_delay_ms.unwrap_or(global_confirm);
+        let refire = alarm.refire_delay_ms.unwrap_or(global_refire);
+        if let Err(e) = schedule_alarm(alarm.id, &alarm.time, confirm, refire) {
+            log::error!("reschedule_all_enabled: alarm {} failed: {e}", alarm.id);
+        } else {
+            count += 1;
+        }
+    }
+    log::info!("reschedule_all_enabled: rescheduled {count} alarms");
+}
+
 pub fn cancel_alarm(alarm_id: i64) -> Result<(), SchedulerError> {
     let vm = JAVA_VM.get().ok_or(SchedulerError::NoVm)?;
     let class = MAIN_ACTIVITY_CLASS.get().ok_or(SchedulerError::NoVm)?;

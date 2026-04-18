@@ -11,6 +11,11 @@ const DEFAULT_REFIRE_MS: i64 = 15 * 60_000;
 pub fn Home() -> Element {
     let mut alarms = use_signal(database::load_alarms);
 
+    // Re-register all enabled alarms with AlarmManager on every app open.
+    // Covers alarms lost after reboot or process death.
+    #[cfg(target_os = "android")]
+    use_hook(|| crate::scheduler::reschedule_all_enabled());
+
     let mut delete = move |id: i64| {
         if let Err(e) = database::delete_alarm(id) {
             log::error!("delete_alarm failed: {e}");
