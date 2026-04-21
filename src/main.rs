@@ -2,6 +2,8 @@ use dioxus::prelude::*;
 
 use views::{CreateAlarm, EditAlarm, Home, Settings};
 
+pub type ThemeSignal = Signal<bool>;
+
 /// Define a components module that contains all shared components for our app.
 mod components;
 mod database;
@@ -11,7 +13,7 @@ mod views;
 
 /// The Route enum is used to define the structure of internal routes in our app. All route enums need to derive
 /// the [`Routable`] trait, which provides the necessary methods for the router to work.
-/// 
+///
 /// Each variant represents a different URL pattern that can be matched by the router. If that pattern is matched,
 /// the components for that route will be rendered.
 #[derive(Debug, Clone, Routable, PartialEq)]
@@ -41,10 +43,16 @@ fn main() {
 /// Components should be annotated with `#[component]` to support props, better error messages, and autocomplete
 #[component]
 fn App() -> Element {
+    let light_mode = use_context_provider(|| Signal::new(database::get_light_mode()));
+    let theme_class = if *light_mode.read() { "light" } else { "" };
+
     // The `rsx!` macro lets us define HTML inside of rust. It expands to an Element with all of our HTML inside.
     rsx! {
         document::Link { rel: "icon", href: FAVICON }
         document::Link { rel: "stylesheet", href: TAILWIND_CSS }
-        Router::<Route> {}
+        div {
+            class: "{theme_class}",
+            Router::<Route> {}
+        }
     }
 }

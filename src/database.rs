@@ -60,11 +60,13 @@ pub fn get_connection() -> &'static Mutex<Connection> {
             )",
             [],
         )
-        .unwrap_or_else(|e| { log::error!("get_connection: create table failed: {e}"); 0 });
+            .unwrap_or_else(|e| { log::error!("get_connection: create table failed: {e}"); 0 });
         // Idempotent migrations for installs that predate the override columns.
         // `ALTER TABLE ADD COLUMN` errors with "duplicate column name" on re-run — fine, ignore.
         conn.execute("ALTER TABLE alarms ADD COLUMN confirm_delay_ms INTEGER", []).ok();
         conn.execute("ALTER TABLE alarms ADD COLUMN refire_delay_ms INTEGER", []).ok();
+        conn.execute("CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL)", [],)
+            .unwrap_or_else(|e| { log::error!("get_connection: create settings table failed: {e}"); 0 });
         Mutex::new(conn)
     })
 }
@@ -170,6 +172,27 @@ pub fn insert_alarm(
         rusqlite::params![time, enabled, recurrence, monday, tuesday, wednesday, thursday, friday, saturday, sunday, confirm_delay_ms, refire_delay_ms],
     )?;
     Ok(conn.last_insert_rowid())
+}
+
+pub fn get_light_mode() -> bool {
+    let Ok(conn) = get_connection().lock() else { return false };
+    conn.query_row(
+        "SELECT value FROM settings WHERE key = 'light_mode'",
+        [],
+        |row| row.get::<_, String>(0),
+    )
+        .map(|v| v == "1")
+        .unwrap_or(false)
+}
+
+pub fn set_light_mode(light: bool) {
+    let Ok(conn) = get_connection().lock() else { return };
+    conn.execute(
+        "INSERT INTO settings (key, value) VALUES ('light_mode', ?1)
+         ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+        [if light { "1" } else { "0" }],
+    )
+        .unwrap_or_else(|e| { log::error!("set_light_mode failed: {e}"); 0 });
 }
 
 pub fn update_alarm(

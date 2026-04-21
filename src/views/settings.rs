@@ -1,4 +1,4 @@
-use crate::Route;
+use crate::{database, Route, ThemeSignal};
 use dioxus::prelude::*;
 
 const DEFAULT_CONFIRM_MINUTES: i64 = 5;
@@ -27,6 +27,7 @@ pub fn Settings() -> Element {
     let mut confirm_minutes = use_signal(|| initial_confirm.to_string());
     let mut refire_minutes = use_signal(|| initial_refire.to_string());
     let mut error = use_signal(String::new);
+    let mut light_mode = use_context::<ThemeSignal>();
 
     let navigator = use_navigator();
 
@@ -112,6 +113,33 @@ pub fn Settings() -> Element {
                         min: "1",
                         value: "{refire_minutes}",
                         oninput: move |evt| refire_minutes.set(evt.value().clone()),
+                    }
+                }
+                div {
+                    class: "mb-5",
+                    label {
+                        class: "block text-xs uppercase tracking-widest text-dim mb-2",
+                        "theme"
+                    }
+                    div {
+                        class: "flex items-center gap-4 text-sm",
+                        button {
+                            class: if !*light_mode.read() { "text-fg" } else { "text-dim hover:text-fg transition-colors" },
+                            onclick: move |_| {
+                                light_mode.set(false);
+                                database::set_light_mode(false);
+                            },
+                            "dark"
+                        }
+                        span { class: "text-dim text-xs", "/" }
+                        button {
+                            class: if *light_mode.read() { "text-fg" } else { "text-dim hover:text-fg transition-colors" },
+                            onclick: move |_| {
+                                light_mode.set(true);
+                                database::set_light_mode(true);
+                            },
+                            "light"
+                        }
                     }
                 }
                 if !error.read().is_empty() {
