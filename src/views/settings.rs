@@ -1,4 +1,5 @@
-use crate::{database, Route, Theme, ThemeSignal};
+use crate::theme::{Palette, Rgb, Theme, ThemeSignal};
+use crate::{database, Route};
 use dioxus::prelude::*;
 
 const DEFAULT_CONFIRM_MINUTES: i64 = 5;
@@ -28,7 +29,16 @@ pub fn Settings() -> Element {
     let mut refire_minutes = use_signal(|| initial_refire.to_string());
     let mut error = use_signal(String::new);
     let mut theme = use_context::<ThemeSignal>();
-    let mut pending_theme = use_signal(|| theme());
+    // Which theme is selected ("dark" / "light" / "custom"); applied only on save.
+    let mut pending_kind = use_signal(|| theme().key());
+    // Editable hex values for the custom palette, prefilled from the active or last saved one.
+    let mut custom_colors = use_signal(|| {
+        let palette = match theme() {
+            Theme::Custom(p) => p,
+            _ => database::get_custom_palette().unwrap_or_default(),
+        };
+        palette.colors().map(|c| c.to_string())
+    });
 
     let navigator = use_navigator();
 
@@ -51,6 +61,27 @@ pub fn Settings() -> Element {
             error.set("Refire delay must be greater than confirm delay.".to_string());
             return;
         }
+        let selected = match pending_kind() {
+            "light" => Theme::Light,
+            "custom" => {
+                let colors = custom_colors.read().clone();
+                let mut parsed = [Rgb::new(0); 5];
+                for (i, value) in colors.iter().enumerate() {
+                    match Rgb::parse(value) {
+                        Some(c) => parsed[i] = c,
+                        None => {
+                            error.set(format!(
+                                "Custom {} color must be a hex color like #1a2b3c.",
+                                Palette::FIELDS[i]
+                            ));
+                            return;
+                        }
+                    }
+                }
+                Theme::Custom(Palette::from_colors(parsed))
+            }
+            _ => Theme::Dark,
+        };
         error.set(String::new());
 
         let confirm_ms = confirm * 60_000;
@@ -71,7 +102,6 @@ pub fn Settings() -> Element {
             );
         }
 
-        let selected = pending_theme();
         database::set_theme(selected);
         theme.set(selected);
         navigator.push(Route::Home {});
@@ -127,11 +157,37 @@ pub fn Settings() -> Element {
                     }
                     div {
                         class: "flex items-center gap-4 text-sm py-2 border-b border-faint",
-                        for option in Theme::ALL {
+                        for option in ["dark", "light", "custom"] {
                             button {
-                                class: if pending_theme() == option { "text-fg" } else { "text-dim hover:text-fg transition-colors" },
-                                onclick: move |_| pending_theme.set(option),
-                                "{option.as_str()}"
+                                class: if pending_kind() == option { "text-fg" } else { "text-dim hover:text-fg transition-colors" },
+                                onclick: move |_| pending_kind.set(option),
+                                "{option}"
+                            }
+                        }
+                    }
+                    if pending_kind() == "custom" {
+                        div {
+                            class: "mt-3",
+                            for (i, name) in Palette::FIELDS.iter().enumerate() {
+                                div {
+                                    key: "{name}",
+                                    class: "flex items-center gap-3 py-1",
+                                    span { class: "w-14 text-xs text-dim", "{name}" }
+                                    div {
+                                        class: "w-5 h-5 border border-faint",
+                                        style: match Rgb::parse(&custom_colors.read()[i]) {
+                                            Some(c) => format!("background: {c};"),
+                                            None => String::new(),
+                                        },
+                                    }
+                                    input {
+                                        class: "flex-1 bg-transparent border-b border-faint focus:border-fg px-0 py-1 outline-none text-sm",
+                                        r#type: "text",
+                                        maxlength: "7",
+                                        value: "{custom_colors.read()[i]}",
+                                        oninput: move |evt| custom_colors.write()[i] = evt.value(),
+                                    }
+                                }
                             }
                         }
                     }

@@ -1,7 +1,7 @@
 use rusqlite::Connection;
 use std::sync::{Mutex, OnceLock};
 use thiserror::Error;
-use crate::Theme;
+use crate::theme::{Palette, Theme};
 
 #[derive(Error, Debug)]
 pub enum Error {
@@ -175,25 +175,45 @@ pub fn insert_alarm(
     Ok(conn.last_insert_rowid())
 }
 
+fn get_setting(conn: &Connection, key: &str) -> Option<String> {
+    conn.query_row("SELECT value FROM settings WHERE key = ?1", [key], |row| row.get::<_, String>(0))
+        .ok()
+}
+
+fn set_setting(conn: &Connection, key: &str, value: &str) {
+    conn.execute(
+        "INSERT INTO settings (key, value) VALUES (?1, ?2)
+         ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+        [key, value],
+    )
+        .unwrap_or_else(|e| { log::error!("set_setting({key}) failed: {e}"); 0 });
+}
+
+/// The selected theme. A missing, unknown or broken custom theme falls back to the default.
 pub fn get_theme() -> Theme {
     let Ok(conn) = get_connection().lock() else { return Theme::default() };
-    conn.query_row(
-        "SELECT value FROM settings WHERE key = 'theme'",
-        [],
-        |row| row.get::<_, String>(0),
-    )
-        .map(|v| Theme::parse(&v))
-        .unwrap_or_default()
+    match get_setting(&conn, "theme").as_deref() {
+        Some("light") => Theme::Light,
+        Some("custom") => get_setting(&conn, "theme_custom_palette")
+            .and_then(|v| Palette::deserialize(&v))
+            .map(Theme::Custom)
+            .unwrap_or_default(),
+        _ => Theme::Dark,
+    }
+}
+
+/// The last saved custom palette, kept even while a preset is selected.
+pub fn get_custom_palette() -> Option<Palette> {
+    let conn = get_connection().lock().ok()?;
+    get_setting(&conn, "theme_custom_palette").and_then(|v| Palette::deserialize(&v))
 }
 
 pub fn set_theme(theme: Theme) {
     let Ok(conn) = get_connection().lock() else { return };
-    conn.execute(
-        "INSERT INTO settings (key, value) VALUES ('theme', ?1)
-         ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-        [theme.as_str()],
-    )
-        .unwrap_or_else(|e| { log::error!("set_theme failed: {e}"); 0 });
+    if let Theme::Custom(palette) = theme {
+        set_setting(&conn, "theme_custom_palette", &palette.serialize());
+    }
+    set_setting(&conn, "theme", theme.key());
 }
 
 pub fn update_alarm(

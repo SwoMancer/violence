@@ -2,48 +2,12 @@ use dioxus::prelude::*;
 
 use views::{CreateAlarm, EditAlarm, Home, Settings};
 
-#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
-pub enum Theme {
-    #[default]
-    Dark,
-    Light,
-}
-
-impl Theme {
-    pub const ALL: [Theme; 2] = [Theme::Dark, Theme::Light];
-
-    /// Stable key stored in the settings table.
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Theme::Dark => "dark",
-            Theme::Light => "light",
-        }
-    }
-
-    /// CSS class applied to the root element (dark is the default palette).
-    pub fn class(self) -> &'static str {
-        match self {
-            Theme::Dark => "",
-            Theme::Light => "light",
-        }
-    }
-
-    /// Unknown values fall back to the default theme.
-    pub fn parse(s: &str) -> Self {
-        match s {
-            "light" => Theme::Light,
-            _ => Theme::Dark,
-        }
-    }
-}
-
-pub type ThemeSignal = Signal<Theme>;
-
 /// Define a components module that contains all shared components for our app.
 mod components;
 mod database;
 #[cfg(target_os = "android")]
 mod scheduler;
+mod theme;
 mod views;
 
 /// The Route enum is used to define the structure of internal routes in our app. All route enums need to derive
@@ -80,6 +44,7 @@ fn main() {
 fn App() -> Element {
     let theme = use_context_provider(|| Signal::new(database::get_theme()));
     let theme_class = theme().class();
+    let theme_style = theme().style();
 
     // The `rsx!` macro lets us define HTML inside of rust. It expands to an Element with all of our HTML inside.
     rsx! {
@@ -87,6 +52,7 @@ fn App() -> Element {
         document::Link { rel: "stylesheet", href: TAILWIND_CSS }
         div {
             class: "{theme_class}",
+            style: "{theme_style}",
             Router::<Route> {}
         }
     }
