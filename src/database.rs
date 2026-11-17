@@ -1,6 +1,7 @@
 use rusqlite::Connection;
 use std::sync::{Mutex, OnceLock};
 use thiserror::Error;
+use crate::Theme;
 
 #[derive(Error, Debug)]
 pub enum Error {
@@ -174,25 +175,25 @@ pub fn insert_alarm(
     Ok(conn.last_insert_rowid())
 }
 
-pub fn get_light_mode() -> bool {
-    let Ok(conn) = get_connection().lock() else { return false };
+pub fn get_theme() -> Theme {
+    let Ok(conn) = get_connection().lock() else { return Theme::default() };
     conn.query_row(
-        "SELECT value FROM settings WHERE key = 'light_mode'",
+        "SELECT value FROM settings WHERE key = 'theme'",
         [],
         |row| row.get::<_, String>(0),
     )
-        .map(|v| v == "1")
-        .unwrap_or(false)
+        .map(|v| Theme::parse(&v))
+        .unwrap_or_default()
 }
 
-pub fn set_light_mode(light: bool) {
+pub fn set_theme(theme: Theme) {
     let Ok(conn) = get_connection().lock() else { return };
     conn.execute(
-        "INSERT INTO settings (key, value) VALUES ('light_mode', ?1)
+        "INSERT INTO settings (key, value) VALUES ('theme', ?1)
          ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-        [if light { "1" } else { "0" }],
+        [theme.as_str()],
     )
-        .unwrap_or_else(|e| { log::error!("set_light_mode failed: {e}"); 0 });
+        .unwrap_or_else(|e| { log::error!("set_theme failed: {e}"); 0 });
 }
 
 pub fn update_alarm(

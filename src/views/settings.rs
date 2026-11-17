@@ -1,4 +1,4 @@
-use crate::{database, Route, ThemeSignal};
+use crate::{database, Route, Theme, ThemeSignal};
 use dioxus::prelude::*;
 
 const DEFAULT_CONFIRM_MINUTES: i64 = 5;
@@ -27,7 +27,8 @@ pub fn Settings() -> Element {
     let mut confirm_minutes = use_signal(|| initial_confirm.to_string());
     let mut refire_minutes = use_signal(|| initial_refire.to_string());
     let mut error = use_signal(String::new);
-    let mut light_mode = use_context::<ThemeSignal>();
+    let mut theme = use_context::<ThemeSignal>();
+    let mut pending_theme = use_signal(|| theme());
 
     let navigator = use_navigator();
 
@@ -70,6 +71,9 @@ pub fn Settings() -> Element {
             );
         }
 
+        let selected = pending_theme();
+        database::set_theme(selected);
+        theme.set(selected);
         navigator.push(Route::Home {});
     };
 
@@ -122,23 +126,13 @@ pub fn Settings() -> Element {
                         "theme"
                     }
                     div {
-                        class: "flex items-center gap-4 text-sm",
-                        button {
-                            class: if !*light_mode.read() { "text-fg" } else { "text-dim hover:text-fg transition-colors" },
-                            onclick: move |_| {
-                                light_mode.set(false);
-                                database::set_light_mode(false);
-                            },
-                            "dark"
-                        }
-                        span { class: "text-dim text-xs", "/" }
-                        button {
-                            class: if *light_mode.read() { "text-fg" } else { "text-dim hover:text-fg transition-colors" },
-                            onclick: move |_| {
-                                light_mode.set(true);
-                                database::set_light_mode(true);
-                            },
-                            "light"
+                        class: "flex items-center gap-4 text-sm py-2 border-b border-faint",
+                        for option in Theme::ALL {
+                            button {
+                                class: if pending_theme() == option { "text-fg" } else { "text-dim hover:text-fg transition-colors" },
+                                onclick: move |_| pending_theme.set(option),
+                                "{option.as_str()}"
+                            }
                         }
                     }
                 }

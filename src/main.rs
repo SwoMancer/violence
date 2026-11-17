@@ -2,7 +2,42 @@ use dioxus::prelude::*;
 
 use views::{CreateAlarm, EditAlarm, Home, Settings};
 
-pub type ThemeSignal = Signal<bool>;
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum Theme {
+    #[default]
+    Dark,
+    Light,
+}
+
+impl Theme {
+    pub const ALL: [Theme; 2] = [Theme::Dark, Theme::Light];
+
+    /// Stable key stored in the settings table.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Theme::Dark => "dark",
+            Theme::Light => "light",
+        }
+    }
+
+    /// CSS class applied to the root element (dark is the default palette).
+    pub fn class(self) -> &'static str {
+        match self {
+            Theme::Dark => "",
+            Theme::Light => "light",
+        }
+    }
+
+    /// Unknown values fall back to the default theme.
+    pub fn parse(s: &str) -> Self {
+        match s {
+            "light" => Theme::Light,
+            _ => Theme::Dark,
+        }
+    }
+}
+
+pub type ThemeSignal = Signal<Theme>;
 
 /// Define a components module that contains all shared components for our app.
 mod components;
@@ -43,8 +78,8 @@ fn main() {
 /// Components should be annotated with `#[component]` to support props, better error messages, and autocomplete
 #[component]
 fn App() -> Element {
-    let light_mode = use_context_provider(|| Signal::new(database::get_light_mode()));
-    let theme_class = if *light_mode.read() { "light" } else { "" };
+    let theme = use_context_provider(|| Signal::new(database::get_theme()));
+    let theme_class = theme().class();
 
     // The `rsx!` macro lets us define HTML inside of rust. It expands to an Element with all of our HTML inside.
     rsx! {
